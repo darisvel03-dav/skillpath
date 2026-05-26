@@ -167,11 +167,11 @@ function LandingPage() {
           ◈ POWERED BY YOUTUBE + AI
         </div>
         <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: "900", fontSize: "clamp(36px,7vw,60px)", lineHeight: "1.07", letterSpacing: "-2px", marginBottom: "20px" }}>
-          Level up any skill<br />
-          <span style={{ background: "linear-gradient(90deg,#38bdf8,#818cf8,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            with a free learning path
-          </span>
-        </h1>
+  <span style={{ color: "white" }}>Level up any skill</span><br />
+  <span style={{ color: "#38bdf8" }}>
+    with a free learning path
+  </span>
+</h1>
         <p style={{ color: "#4a6080", fontSize: "17px", lineHeight: "1.75", marginBottom: "36px" }}>
           Tell us what you want to learn. Our AI searches YouTube, scores thousands of videos for quality and relevance, and builds you a step-by-step path — in seconds. No paywalls, no fluff, no wasted time.
         </p>
@@ -334,13 +334,19 @@ function Dashboard() {
   }
 
   async function searchYouTube(q) {
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(q)}&relevanceLanguage=en&key=${YT_API_KEY}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.items?.length) return null;
-    const item = data.items[0];
-    return { videoId: item.id.videoId, title: item.snippet.title, channel: item.snippet.channelTitle, thumbnail: item.snippet.thumbnails?.medium?.url || "" };
-  }
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(q)}&relevanceLanguage=en&key=${YT_API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!data.items?.length) return null;
+  const item = data.items[0];
+  const videoId = item.id.videoId;
+  return {
+    videoId,
+    title: item.snippet.title,
+    channel: item.snippet.channelTitle,
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+  };
+}
 
   async function getVideoStats(ids) {
     if (!ids.length) return {};
@@ -353,30 +359,49 @@ function Dashboard() {
   }
 
   async function generate(goalOverride) {
-    const goal = goalOverride || query;
-    if (!goal.trim()) return;
-    setStage("loading"); setCurrentPath(null); setVisible(false); setErrMsg(""); startCycle();
-    try {
-      const plan = await planWithClaude(goal);
-      const searches = await Promise.all(plan.videos.map(v => searchYouTube(v.youtubeQuery)));
-      const foundIds = searches.map(s => s?.videoId).filter(Boolean);
-      const statsMap = await getVideoStats(foundIds);
-      const videos = plan.videos.map((v, i) => {
-        const yt = searches[i]; const stats = yt ? (statsMap[yt.videoId] || {}) : {};
-        const meta = PHASE_META[v.phase] || PHASE_META["Core Skills"];
-        return { id: i, phase: v.phase, phaseColor: meta.color, tags: meta.tags, title: yt?.title || v.youtubeQuery, channel: yt?.channel || "YouTube", thumbnail: yt?.thumbnail || "", videoId: yt?.videoId || "", duration: stats.duration || "", views: stats.views || "", relevanceScore: v.relevanceScore, reason: v.reason };
-      });
-      const newPath = { id: Date.now(), goal: plan.refinedGoal, totalTime: plan.totalTime, videos, createdAt: new Date().toLocaleDateString() };
-      stopCycle();
-      setCurrentPath(newPath);
-      const updated = [newPath, ...savedPaths.filter(p => p.goal !== newPath.goal)];
-      savePaths(updated);
-      setStage("done"); setView("path");
-      setTimeout(() => setVisible(true), 100);
-    } catch (err) {
-      stopCycle(); setErrMsg(err.message || "Something went wrong."); setStage("error");
-    }
+  const goal = goalOverride || query;
+  if (!goal.trim()) return;
+  setStage("loading");
+  setView("loading");
+  setCurrentPath(null);
+  setVisible(false);
+  setErrMsg("");
+  startCycle();
+  try {
+    const plan = await planWithClaude(goal);
+    const searches = await Promise.all(plan.videos.map(v => searchYouTube(v.youtubeQuery)));
+    const foundIds = searches.map(s => s?.videoId).filter(Boolean);
+    const statsMap = await getVideoStats(foundIds);
+    const videos = plan.videos.map((v, i) => {
+      const yt = searches[i];
+      const stats = yt ? (statsMap[yt.videoId] || {}) : {};
+      const meta = PHASE_META[v.phase] || PHASE_META["Core Skills"];
+      return {
+        id: i, phase: v.phase, phaseColor: meta.color, tags: meta.tags,
+        title: yt?.title || v.youtubeQuery, channel: yt?.channel || "YouTube",
+        thumbnail: yt?.thumbnail || "", videoId: yt?.videoId || "",
+        duration: stats.duration || "", views: stats.views || "",
+        relevanceScore: v.relevanceScore, reason: v.reason,
+      };
+    });
+    const newPath = {
+      id: Date.now(), goal: plan.refinedGoal, totalTime: plan.totalTime,
+      videos, createdAt: new Date().toLocaleDateString()
+    };
+    stopCycle();
+    setCurrentPath(newPath);
+    const updated = [newPath, ...savedPaths.filter(p => p.goal !== newPath.goal)];
+    savePaths(updated);
+    setStage("done");
+    setView("path");
+    setTimeout(() => setVisible(true), 100);
+  } catch (err) {
+    stopCycle();
+    setErrMsg(err.message || "Something went wrong.");
+    setStage("error");
+    setView("error");
   }
+}
 
   const totalWatched = Object.values(watchedMap).filter(Boolean).length;
   const completedPaths = savedPaths.filter(p => getProgress(p).pct === 100).length;
@@ -457,7 +482,7 @@ function Dashboard() {
   );
 
   // Loading / Error
-  if (stage === "loading" || (stage === "error" && view !== "path")) return (
+  if (view === "loading" || view === "error") return (
     <div style={{ minHeight: "100vh", background: "#030a17", fontFamily: "'DM Sans',sans-serif", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@800;900&family=Space+Mono:wght@400&display=swap');@keyframes shimmer{0%{background-position:-400% 0}100%{background-position:400% 0}}@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}`}</style>
       {stage === "loading" ? <>
