@@ -1,8 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   SignedIn, SignedOut, SignInButton, SignUpButton,
   UserButton, useUser
 } from "@clerk/clerk-react";
+import { supabase } from "./supabase";
 
 const YT_API_KEY = import.meta.env.VITE_YT_API_KEY;
 
@@ -18,6 +19,7 @@ const PHASE_META = {
   "Advanced":    { color: "#f59e0b", icon: "●",  tags: ["Advanced", "Pro Tips"] },
 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function parseDuration(iso) {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!m) return "? min";
@@ -34,6 +36,7 @@ function formatViews(n) {
   return String(v);
 }
 
+// ── ScoreRing ─────────────────────────────────────────────────────────────────
 function ScoreRing({ score }) {
   const r = 18, circ = 2 * Math.PI * r;
   const offset = circ - (score / 100) * circ;
@@ -50,6 +53,7 @@ function ScoreRing({ score }) {
   );
 }
 
+// ── VideoCard ─────────────────────────────────────────────────────────────────
 function VideoCard({ video, globalIndex, visible, phaseColor, watched, onToggle }) {
   const [open, setOpen] = useState(false);
   const [imgErr, setImgErr] = useState(false);
@@ -58,7 +62,7 @@ function VideoCard({ video, globalIndex, visible, phaseColor, watched, onToggle 
       opacity: visible ? 1 : 0,
       transform: visible ? "translateY(0)" : "translateY(22px)",
       transition: `opacity 0.45s ease ${globalIndex * 0.09}s, transform 0.45s ease ${globalIndex * 0.09}s`,
-      background: watched ? "#06101f" : "#06101f",
+      background: "#06101f",
       border: `1px solid ${open ? phaseColor + "66" : watched ? phaseColor + "44" : "#111c30"}`,
       borderRadius: "14px", marginBottom: "10px", cursor: "pointer", overflow: "hidden",
     }}>
@@ -117,7 +121,179 @@ function VideoCard({ video, globalIndex, visible, phaseColor, watched, onToggle 
   );
 }
 
-// ── Landing Page ─────────────────────────────────────────────────────────────
+// ── Completion Modal ──────────────────────────────────────────────────────────
+function CompletionModal({ path, user, onClose }) {
+  const cardRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const completedDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const videoCount = path?.videos?.length || 0;
+  const firstName = user?.firstName || user?.username || "You";
+  const lastName = user?.lastName || "";
+  const fullName = [firstName, lastName].filter(Boolean).join(" ");
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      // Dynamically load html2canvas
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      script.onload = async () => {
+        const canvas = await window.html2canvas(cardRef.current, {
+          scale: 3,
+          backgroundColor: null,
+          useCORS: true,
+        });
+        const link = document.createElement("a");
+        link.download = `levelingpath-${path.goal.replace(/\s+/g, "-").toLowerCase()}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+        setDownloading(false);
+      };
+      document.head.appendChild(script);
+    } catch (e) {
+      console.error(e);
+      setDownloading(false);
+    }
+  }
+
+  async function handleCopyLink() {
+    const text = `🏆 I just completed "${path.goal}" on LevelingPath!\n\nFree AI-curated YouTube learning paths → levelingpath.com`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Trap clicks outside card to close
+  function handleBackdropClick(e) {
+    if (e.target === e.currentTarget) onClose();
+  }
+
+  return (
+    <div onClick={handleBackdropClick} style={{
+      position: "fixed", inset: 0, zIndex: 1000,
+      background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "24px", animation: "fadeIn 0.25s ease",
+    }}>
+      <style>{`
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(32px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes shimmerGold{0%{background-position:-200% 0}100%{background-position:200% 0}}
+      `}</style>
+
+      <div style={{ animation: "slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1)", width: "100%", maxWidth: "480px" }}>
+        {/* The shareable card — this is what gets screenshot */}
+        <div ref={cardRef} style={{
+          background: "white", borderRadius: "20px", padding: "40px 36px 32px",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.4)",
+          fontFamily: "'DM Sans', sans-serif",
+          position: "relative", overflow: "hidden",
+        }}>
+          {/* Decorative top bar */}
+          <div style={{
+            position: "absolute", top: 0, left: 0, right: 0, height: "5px",
+            background: "linear-gradient(90deg, #0ea5e9, #6366f1, #a78bfa)",
+          }} />
+
+          {/* Medal */}
+          <div style={{ textAlign: "center", marginBottom: "20px" }}>
+            <div style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: "72px", height: "72px", borderRadius: "50%",
+              background: "linear-gradient(135deg, #fbbf24, #f59e0b)",
+              boxShadow: "0 8px 24px rgba(251,191,36,0.4)",
+              fontSize: "36px",
+            }}>🏆</div>
+          </div>
+
+          {/* Headline */}
+          <div style={{ textAlign: "center", marginBottom: "6px" }}>
+            <div style={{
+              fontSize: "11px", fontWeight: "700", letterSpacing: "2.5px",
+              color: "#6366f1", fontFamily: "'Space Mono', monospace", marginBottom: "10px",
+            }}>SKILL COMPLETED</div>
+            <div style={{
+              fontFamily: "'Syne', sans-serif", fontWeight: "900",
+              fontSize: "22px", color: "#0a0f1e", lineHeight: "1.25",
+              marginBottom: "8px",
+            }}>{path.goal}</div>
+            <div style={{ fontSize: "14px", color: "#64748b" }}>
+              Completed by <strong style={{ color: "#0a0f1e" }}>{fullName}</strong>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ height: "1px", background: "#f1f5f9", margin: "20px 0" }} />
+
+          {/* Stats row */}
+          <div style={{ display: "flex", justifyContent: "center", gap: "32px", marginBottom: "20px" }}>
+            {[
+              [videoCount, "Videos watched"],
+              [completedDate, "Completed"],
+            ].map(([val, label]) => (
+              <div key={label} style={{ textAlign: "center" }}>
+                <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: "900", fontSize: "15px", color: "#0a0f1e" }}>{val}</div>
+                <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>{label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Branding */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              display: "inline-block", padding: "6px 14px",
+              background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "20px",
+              fontSize: "12px", color: "#64748b", fontFamily: "'Space Mono', monospace",
+            }}>
+              levelingpath.com
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons — outside the card so they don't appear in the screenshot */}
+        <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
+          <button onClick={handleDownload} disabled={downloading} style={{
+            flex: 1, padding: "13px", borderRadius: "12px",
+            background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+            border: "none", color: "white", fontWeight: "700", fontSize: "14px",
+            cursor: downloading ? "not-allowed" : "pointer", opacity: downloading ? 0.7 : 1,
+            fontFamily: "'DM Sans', sans-serif",
+          }}>
+            {downloading ? "Saving…" : "⬇ Download PNG"}
+          </button>
+          <button onClick={handleCopyLink} style={{
+            flex: 1, padding: "13px", borderRadius: "12px",
+            background: copied ? "#16a34a" : "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.15)",
+            color: "white", fontWeight: "700", fontSize: "14px",
+            cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+            transition: "background 0.2s",
+          }}>
+            {copied ? "✓ Copied!" : "🔗 Copy share text"}
+          </button>
+        </div>
+
+        {/* Close */}
+        <div style={{ textAlign: "center", marginTop: "12px" }}>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", color: "rgba(255,255,255,0.4)",
+            fontSize: "13px", cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+          }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Landing Page ──────────────────────────────────────────────────────────────
 function LandingPage() {
   const steps = [
     { num: "01", title: "Create your free account", desc: "Sign up in seconds. No credit card, no catch. Your account saves all your paths and tracks your progress forever." },
@@ -167,11 +343,9 @@ function LandingPage() {
           ◈ POWERED BY YOUTUBE + AI
         </div>
         <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: "900", fontSize: "clamp(36px,7vw,60px)", lineHeight: "1.07", letterSpacing: "-2px", marginBottom: "20px" }}>
-  <span style={{ color: "white" }}>Level up any skill</span><br />
-  <span style={{ color: "#38bdf8" }}>
-    with a free learning path
-  </span>
-</h1>
+          <span style={{ color: "white" }}>Level up any skill</span><br />
+          <span style={{ color: "#38bdf8" }}>with a free learning path</span>
+        </h1>
         <p style={{ color: "#4a6080", fontSize: "17px", lineHeight: "1.75", marginBottom: "36px" }}>
           Tell us what you want to learn. Our AI searches YouTube, scores thousands of videos for quality and relevance, and builds you a step-by-step path — in seconds. No paywalls, no fluff, no wasted time.
         </p>
@@ -281,36 +455,195 @@ function LandingPage() {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 function Dashboard() {
   const { user } = useUser();
-  const [view, setView] = useState("home"); // home | generate | path
+
+  const [view, setView] = useState("home");
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState("idle");
   const [loadMsg, setLoadMsg] = useState("");
   const [currentPath, setCurrentPath] = useState(null);
   const [visible, setVisible] = useState(false);
   const [errMsg, setErrMsg] = useState("");
-  const [savedPaths, setSavedPaths] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("lp_paths") || "[]"); } catch { return []; }
-  });
-  const [watchedMap, setWatchedMap] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("lp_watched") || "{}"); } catch { return {}; }
-  });
+  const [savedPaths, setSavedPaths] = useState([]);
+  const [watchedMap, setWatchedMap] = useState({});
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [deletingId, setDeletingId] = useState(null); // tracks which path is being deleted
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [completedPath, setCompletedPath] = useState(null);
+  const prevWatchedRef = useRef({});
   const cycleRef = useRef(null);
 
-  const STEPS = ["Asking AI to plan your path…","Searching YouTube for Foundation videos…","Searching YouTube for Core Skills videos…","Searching YouTube for Advanced videos…","Fetching video stats…","Scoring for relevance…","Sequencing your path…"];
+  const STEPS = [
+    "Asking AI to plan your path…",
+    "Searching YouTube for Foundation videos…",
+    "Searching YouTube for Core Skills videos…",
+    "Searching YouTube for Advanced videos…",
+    "Fetching video stats…",
+    "Scoring for relevance…",
+    "Sequencing your path…",
+  ];
+
+  // ── Load all data from Supabase on mount ───────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+    async function loadData() {
+      try {
+        // Load this user's paths, newest first
+        const { data: pathRows, error: pathErr } = await supabase
+          .from("paths")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (pathErr) throw pathErr;
+
+        // Each path row has: id, user_id, goal, total_time, videos (jsonb), created_at
+        const paths = (pathRows || []).map(row => ({
+          id: row.id,
+          goal: row.goal,
+          totalTime: row.total_time,
+          videos: row.videos || [],
+          createdAt: new Date(row.created_at).toLocaleDateString(),
+        }));
+        setSavedPaths(paths);
+
+        // Load this user's watched videos
+        const { data: watchedRows, error: watchedErr } = await supabase
+          .from("watched_videos")
+          .select("*")
+          .eq("user_id", user.id);
+
+        if (watchedErr) throw watchedErr;
+
+        // Build a lookup map: "pathId_videoId" => true
+        const map = {};
+        (watchedRows || []).forEach(row => {
+          map[`${row.path_id}_${row.video_id}`] = true;
+        });
+        setWatchedMap(map);
+      } catch (err) {
+        console.error("Supabase load error:", err.message);
+      } finally {
+        setDataLoaded(true);
+      }
+    }
+    loadData();
+  }, [user?.id]);
+
+  // ── Detect when a path just hits 100% and show the modal ─────────────────
+  useEffect(() => {
+    if (!dataLoaded) return;
+    for (const path of savedPaths) {
+      const { pct } = getProgress(path);
+      const prevPct = (() => {
+        const watched = path.videos.filter(v => prevWatchedRef.current[`${path.id}_${v.id}`]).length;
+        return Math.round((watched / path.videos.length) * 100);
+      })();
+      if (pct === 100 && prevPct < 100) {
+        setCompletedPath(path);
+        setShowCompletion(true);
+        break;
+      }
+    }
+    prevWatchedRef.current = { ...watchedMap };
+  }, [watchedMap]);
 
   function startCycle() {
-    let i = 0; setLoadMsg(STEPS[0]);
-    cycleRef.current = setInterval(() => { i = Math.min(i+1,STEPS.length-1); setLoadMsg(STEPS[i]); }, 1600);
+    let i = 0;
+    setLoadMsg(STEPS[0]);
+    cycleRef.current = setInterval(() => {
+      i = Math.min(i + 1, STEPS.length - 1);
+      setLoadMsg(STEPS[i]);
+    }, 1600);
   }
   function stopCycle() { clearInterval(cycleRef.current); }
 
-  function savePaths(paths) { setSavedPaths(paths); localStorage.setItem("lp_paths", JSON.stringify(paths)); }
-  function saveWatched(map) { setWatchedMap(map); localStorage.setItem("lp_watched", JSON.stringify(map)); }
+  // ── Insert a new path into Supabase ───────────────────────────────────────
+  async function insertPath(newPath) {
+    const { error } = await supabase.from("paths").insert({
+      id: newPath.id,           // text — we use Date.now().toString()
+      user_id: user.id,
+      goal: newPath.goal,
+      total_time: newPath.totalTime,
+      videos: newPath.videos,   // stored as jsonb
+      created_at: new Date().toISOString(),
+    });
+    if (error) throw new Error("Failed to save path: " + error.message);
+  }
 
-  function toggleWatched(pathId, videoId) {
+  // ── Delete a path and its watched videos from Supabase ────────────────────
+  async function deletePath(pathId) {
+    setDeletingId(pathId);
+    try {
+      // Delete watched_videos for this path first
+      const { error: watchedErr } = await supabase
+        .from("watched_videos")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("path_id", String(pathId));
+      if (watchedErr) throw watchedErr;
+
+      // Delete the path itself
+      const { error: pathErr } = await supabase
+        .from("paths")
+        .delete()
+        .eq("id", String(pathId))
+        .eq("user_id", user.id);
+      if (pathErr) throw pathErr;
+
+      // Update local state — remove path and its watched entries from the map
+      setSavedPaths(prev => prev.filter(p => p.id !== pathId));
+      setWatchedMap(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(key => {
+          if (key.startsWith(`${pathId}_`)) delete updated[key];
+        });
+        return updated;
+      });
+
+      // If we're viewing this path, go back to home
+      if (currentPath?.id === pathId) setView("home");
+    } catch (err) {
+      console.error("Delete error:", err.message);
+      alert("Couldn't delete path. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  // ── Toggle a video watched/unwatched ──────────────────────────────────────
+  async function toggleWatched(pathId, videoId) {
     const key = `${pathId}_${videoId}`;
-    const updated = { ...watchedMap, [key]: !watchedMap[key] };
-    saveWatched(updated);
+    const isWatched = !!watchedMap[key];
+
+    // Optimistic update — flip immediately in the UI
+    setWatchedMap(prev => ({ ...prev, [key]: !isWatched }));
+
+    if (isWatched) {
+      // Remove from watched_videos
+      const { error } = await supabase
+        .from("watched_videos")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("path_id", String(pathId))
+        .eq("video_id", videoId);
+      if (error) {
+        console.error("Unwatch error:", error.message);
+        setWatchedMap(prev => ({ ...prev, [key]: true })); // roll back
+      }
+    } else {
+      // Insert into watched_videos
+      const { error } = await supabase
+        .from("watched_videos")
+        .insert({
+          user_id: user.id,
+          path_id: String(pathId),
+          video_id: videoId,
+        });
+      if (error) {
+        console.error("Watch error:", error.message);
+        setWatchedMap(prev => ({ ...prev, [key]: false })); // roll back
+      }
+    }
   }
 
   function getProgress(path) {
@@ -334,19 +667,19 @@ function Dashboard() {
   }
 
   async function searchYouTube(q) {
-  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(q)}&relevanceLanguage=en&key=${YT_API_KEY}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!data.items?.length) return null;
-  const item = data.items[0];
-  const videoId = item.id.videoId;
-  return {
-    videoId,
-    title: item.snippet.title,
-    channel: item.snippet.channelTitle,
-    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-  };
-}
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(q)}&relevanceLanguage=en&key=${YT_API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.items?.length) return null;
+    const item = data.items[0];
+    const videoId = item.id.videoId;
+    return {
+      videoId,
+      title: item.snippet.title,
+      channel: item.snippet.channelTitle,
+      thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+    };
+  }
 
   async function getVideoStats(ids) {
     if (!ids.length) return {};
@@ -354,62 +687,89 @@ function Dashboard() {
     const res = await fetch(url);
     const data = await res.json();
     const map = {};
-    (data.items || []).forEach(item => { map[item.id] = { duration: parseDuration(item.contentDetails?.duration || "PT0S"), views: formatViews(item.statistics?.viewCount || "0") }; });
+    (data.items || []).forEach(item => {
+      map[item.id] = {
+        duration: parseDuration(item.contentDetails?.duration || "PT0S"),
+        views: formatViews(item.statistics?.viewCount || "0"),
+      };
+    });
     return map;
   }
 
   async function generate(goalOverride) {
-  const goal = goalOverride || query;
-  if (!goal.trim()) return;
-  setStage("loading");
-  setView("loading");
-  setCurrentPath(null);
-  setVisible(false);
-  setErrMsg("");
-  startCycle();
-  try {
-    const plan = await planWithClaude(goal);
-    const searches = await Promise.all(plan.videos.map(v => searchYouTube(v.youtubeQuery)));
-    const foundIds = searches.map(s => s?.videoId).filter(Boolean);
-    const statsMap = await getVideoStats(foundIds);
-    const videos = plan.videos.map((v, i) => {
-      const yt = searches[i];
-      const stats = yt ? (statsMap[yt.videoId] || {}) : {};
-      const meta = PHASE_META[v.phase] || PHASE_META["Core Skills"];
-      return {
-        id: i, phase: v.phase, phaseColor: meta.color, tags: meta.tags,
-        title: yt?.title || v.youtubeQuery, channel: yt?.channel || "YouTube",
-        thumbnail: yt?.thumbnail || "", videoId: yt?.videoId || "",
-        duration: stats.duration || "", views: stats.views || "",
-        relevanceScore: v.relevanceScore, reason: v.reason,
+    const goal = goalOverride || query;
+    if (!goal.trim()) return;
+    setStage("loading");
+    setView("loading");
+    setCurrentPath(null);
+    setVisible(false);
+    setErrMsg("");
+    startCycle();
+    try {
+      const plan = await planWithClaude(goal);
+      const searches = await Promise.all(plan.videos.map(v => searchYouTube(v.youtubeQuery)));
+      const foundIds = searches.map(s => s?.videoId).filter(Boolean);
+      const statsMap = await getVideoStats(foundIds);
+      const videos = plan.videos.map((v, i) => {
+        const yt = searches[i];
+        const stats = yt ? (statsMap[yt.videoId] || {}) : {};
+        const meta = PHASE_META[v.phase] || PHASE_META["Core Skills"];
+        return {
+          id: i,
+          phase: v.phase, phaseColor: meta.color, tags: meta.tags,
+          title: yt?.title || v.youtubeQuery, channel: yt?.channel || "YouTube",
+          thumbnail: yt?.thumbnail || "", videoId: yt?.videoId || "",
+          duration: stats.duration || "", views: stats.views || "",
+          relevanceScore: v.relevanceScore, reason: v.reason,
+        };
+      });
+      const newPath = {
+        id: Date.now().toString(), // text id to match Supabase column type
+        goal: plan.refinedGoal,
+        totalTime: plan.totalTime,
+        videos,
+        createdAt: new Date().toLocaleDateString(),
       };
-    });
-    const newPath = {
-      id: Date.now(), goal: plan.refinedGoal, totalTime: plan.totalTime,
-      videos, createdAt: new Date().toLocaleDateString()
-    };
-    stopCycle();
-    setCurrentPath(newPath);
-    const updated = [newPath, ...savedPaths.filter(p => p.goal !== newPath.goal)];
-    savePaths(updated);
-    setStage("done");
-    setView("path");
-    setTimeout(() => setVisible(true), 100);
-  } catch (err) {
-    stopCycle();
-    setErrMsg(err.message || "Something went wrong.");
-    setStage("error");
-    setView("error");
+      stopCycle();
+
+      // Save to Supabase
+      await insertPath(newPath);
+
+      // Update local state
+      setSavedPaths(prev => [newPath, ...prev]);
+      setCurrentPath(newPath);
+      setStage("done");
+      setView("path");
+      setTimeout(() => setVisible(true), 100);
+    } catch (err) {
+      stopCycle();
+      setErrMsg(err.message || "Something went wrong.");
+      setStage("error");
+      setView("error");
+    }
   }
-}
 
   const totalWatched = Object.values(watchedMap).filter(Boolean).length;
   const completedPaths = savedPaths.filter(p => getProgress(p).pct === 100).length;
 
-  // Home view
+  // ── Loading skeleton while Supabase fetches ────────────────────────────────
+  if (!dataLoaded) return (
+    <div style={{ minHeight: "100vh", background: "#030a17", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}`}</style>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontSize: "32px", animation: "blink 1.4s infinite", marginBottom: "16px" }}>◈</div>
+        <div style={{ color: "#253550", fontSize: "13px", fontFamily: "'Space Mono',monospace" }}>Loading your paths…</div>
+      </div>
+    </div>
+  );
+
+  // ── Home view ──────────────────────────────────────────────────────────────
   if (view === "home") return (
     <div style={{ minHeight: "100vh", background: "#030a17", fontFamily: "'DM Sans',sans-serif", color: "white" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Syne:wght@700;800;900&display=swap');*{box-sizing:border-box;margin:0;padding:0;}.go-btn:hover{opacity:0.88;transform:translateY(-1px)}.chip:hover{background:#0d1829!important;border-color:#253550!important;color:#7a90a8!important}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Syne:wght@700;800;900&display=swap');*{box-sizing:border-box;margin:0;padding:0;}.go-btn:hover{opacity:0.88;transform:translateY(-1px)}.chip:hover{background:#0d1829!important;border-color:#253550!important;color:#7a90a8!important}.path-card:hover{border-color:#1e3a5f!important}.delete-btn:hover{background:#2d1b1b!important;border-color:#ef4444!important;color:#ef4444!important}`}</style>
+      {showCompletion && completedPath && (
+        <CompletionModal path={completedPath} user={user} onClose={() => setShowCompletion(false)} />
+      )}
       <nav style={{ padding: "15px 24px", borderBottom: "1px solid #0a1525", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50, background: "rgba(3,10,23,0.93)", backdropFilter: "blur(14px)" }}>
         <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: "900", fontSize: "17px", letterSpacing: "-0.5px" }}>leveling<span style={{ color: "#38bdf8" }}>path</span></div>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
@@ -418,6 +778,7 @@ function Dashboard() {
         </div>
       </nav>
       <div style={{ maxWidth: "800px", margin: "0 auto", padding: "32px 20px" }}>
+
         {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "12px", marginBottom: "32px" }}>
           {[[savedPaths.length,"Paths created"],[completedPaths,"Completed"],[totalWatched,"Videos watched"]].map(([val,label]) => (
@@ -450,20 +811,45 @@ function Dashboard() {
             {savedPaths.map(path => {
               const { watched, total, pct } = getProgress(path);
               const col = pct === 100 ? "#4ade80" : pct > 0 ? "#38bdf8" : "#475569";
+              const isDeleting = deletingId === path.id;
               return (
-                <div key={path.id} onClick={() => { setCurrentPath(path); setView("path"); setVisible(false); setTimeout(() => setVisible(true), 100); }}
-                  style={{ background: "#06101f", border: "1px solid #111c30", borderRadius: "14px", padding: "18px 20px", marginBottom: "10px", cursor: "pointer", transition: "border-color .2s" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
-                    <div>
-                      <div style={{ fontWeight: "700", fontSize: "15px", marginBottom: "3px" }}>{path.goal}</div>
-                      <div style={{ fontSize: "12px", color: "#253550" }}>{total} videos · Created {path.createdAt}</div>
+                <div key={path.id} className="path-card"
+                  style={{ background: "#06101f", border: "1px solid #111c30", borderRadius: "14px", padding: "18px 20px", marginBottom: "10px", transition: "border-color .2s", opacity: isDeleting ? 0.5 : 1 }}>
+                  {/* Clickable area — opens the path */}
+                  <div onClick={() => { if (isDeleting) return; setCurrentPath(path); setView("path"); setVisible(false); setTimeout(() => setVisible(true), 100); }}
+                    style={{ cursor: "pointer" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
+                      <div style={{ flex: 1, minWidth: 0, paddingRight: "12px" }}>
+                        <div style={{ fontWeight: "700", fontSize: "15px", marginBottom: "3px" }}>{path.goal}</div>
+                        <div style={{ fontSize: "12px", color: "#253550" }}>{total} videos · Created {path.createdAt}</div>
+                      </div>
+                      <span style={{ fontSize: "13px", color: col, fontWeight: "700", fontFamily: "'Space Mono',monospace", flexShrink: 0 }}>{pct}%</span>
                     </div>
-                    <span style={{ fontSize: "13px", color: col, fontWeight: "700", fontFamily: "'Space Mono',monospace" }}>{pct}%</span>
+                    <div style={{ height: "4px", background: "#1e293b", borderRadius: "2px" }}>
+                      <div style={{ height: "4px", width: `${pct}%`, background: col, borderRadius: "2px", transition: "width 0.5s ease" }} />
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#253550", marginTop: "6px" }}>{watched} of {total} videos watched{pct === 100 ? " · ✓ Completed!" : ""}</div>
                   </div>
-                  <div style={{ height: "4px", background: "#1e293b", borderRadius: "2px" }}>
-                    <div style={{ height: "4px", width: `${pct}%`, background: col, borderRadius: "2px", transition: "width 0.5s ease" }} />
+
+                  {/* Delete button */}
+                  <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end" }}>
+                    <button
+                      className="delete-btn"
+                      disabled={isDeleting}
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete "${path.goal}"? This can't be undone.`)) {
+                          deletePath(path.id);
+                        }
+                      }}
+                      style={{
+                        padding: "5px 14px", background: "#0d1829", border: "1px solid #1e293b",
+                        borderRadius: "7px", color: "#475569", fontSize: "12px", cursor: isDeleting ? "not-allowed" : "pointer",
+                        fontFamily: "'DM Sans',sans-serif", transition: "all .18s",
+                      }}>
+                      {isDeleting ? "Deleting…" : "🗑 Delete"}
+                    </button>
                   </div>
-                  <div style={{ fontSize: "11px", color: "#253550", marginTop: "6px" }}>{watched} of {total} videos watched{pct === 100 ? " · ✓ Completed!" : ""}</div>
                 </div>
               );
             })}
@@ -481,7 +867,7 @@ function Dashboard() {
     </div>
   );
 
-  // Loading / Error
+  // ── Loading / Error ────────────────────────────────────────────────────────
   if (view === "loading" || view === "error") return (
     <div style={{ minHeight: "100vh", background: "#030a17", fontFamily: "'DM Sans',sans-serif", color: "white", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@800;900&family=Space+Mono:wght@400&display=swap');@keyframes shimmer{0%{background-position:-400% 0}100%{background-position:400% 0}}@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}`}</style>
@@ -501,13 +887,16 @@ function Dashboard() {
     </div>
   );
 
-  // Path view
+  // ── Path view ──────────────────────────────────────────────────────────────
   if (view === "path" && currentPath) {
     const phases = [...new Set(currentPath.videos.map(v => v.phase))];
     const { watched, total, pct } = getProgress(currentPath);
     return (
       <div style={{ minHeight: "100vh", background: "#030a17", fontFamily: "'DM Sans',sans-serif", color: "white" }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&family=Syne:wght@800;900&display=swap');*{box-sizing:border-box;margin:0;padding:0;}`}</style>
+        {showCompletion && completedPath && (
+          <CompletionModal path={completedPath} user={user} onClose={() => setShowCompletion(false)} />
+        )}
         <nav style={{ padding: "15px 24px", borderBottom: "1px solid #0a1525", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50, background: "rgba(3,10,23,0.93)", backdropFilter: "blur(14px)" }}>
           <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: "900", fontSize: "17px" }}>leveling<span style={{ color: "#38bdf8" }}>path</span></div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -565,6 +954,11 @@ function Dashboard() {
             <button onClick={() => setView("home")} style={{ padding: "11px 26px", background: "linear-gradient(135deg,#0ea5e9,#6366f1)", border: "none", borderRadius: "10px", color: "white", fontWeight: "700", fontSize: "14px", cursor: "pointer" }}>
               {pct === 100 ? "Build another path →" : "← Back to dashboard"}
             </button>
+            {pct === 100 && (
+              <button onClick={() => { setCompletedPath(currentPath); setShowCompletion(true); }} style={{ marginTop: "10px", padding: "11px 26px", background: "linear-gradient(135deg,#fbbf24,#f59e0b)", border: "none", borderRadius: "10px", color: "white", fontWeight: "700", fontSize: "14px", cursor: "pointer" }}>
+                🏆 View Achievement Card
+              </button>
+            )}
           </div>
         </div>
       </div>

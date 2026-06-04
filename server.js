@@ -5,15 +5,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
-
 app.post('/api/claude', async (req, res) => {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
+        'x-api-key': process.env.ANTHROPIC_KEY,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(req.body),
@@ -25,4 +23,4 @@ app.post('/api/claude', async (req, res) => {
   }
 });
 
-app.listen(3001, () => console.log('✅ Server running on port 3001'));
+app.listen(3001, () => console.log('Server running on port 3001'));
