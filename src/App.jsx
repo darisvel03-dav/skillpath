@@ -671,7 +671,23 @@ function Dashboard() {
                     </div>
                     <p style={{ fontSize: "12px", color: "#9ca3af", marginTop: "6px" }}>{watched} of {total} videos watched{pct === 100 ? " · ✓ Completed!" : ""}</p>
                   </div>
-                  <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end" }}>
+                  <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                    <button onClick={e => {
+                      e.stopPropagation();
+                      const url = `${window.location.origin}/path/${path.id}`;
+                      navigator.clipboard.writeText(url);
+                      // Show a brief visual feedback
+                      e.target.textContent = "✓ Link copied!";
+                      e.target.style.color = "#059669";
+                      e.target.style.borderColor = "#bbf7d0";
+                      setTimeout(() => {
+                        e.target.textContent = "🔗 Share";
+                        e.target.style.color = "#6b7280";
+                        e.target.style.borderColor = "#e8e8e4";
+                      }, 2000);
+                    }} style={{ padding: "5px 12px", background: "white", border: "1px solid #e8e8e4", borderRadius: "7px", color: "#6b7280", fontSize: "12px", cursor: "pointer", fontFamily: "Inter, sans-serif", transition: "all .15s", fontWeight: "500" }}>
+                      🔗 Share
+                    </button>
                     <button className="del-btn" disabled={isDeleting} onClick={e => { e.stopPropagation(); if (window.confirm(`Delete "${path.goal}"? This can't be undone.`)) deletePath(path.id); }}
                       style={{ padding: "5px 12px", background: "white", border: "1px solid #e8e8e4", borderRadius: "7px", color: "#6b7280", fontSize: "12px", cursor: isDeleting ? "not-allowed" : "pointer", fontFamily: "Inter, sans-serif", transition: "all .15s", fontWeight: "500" }}>
                       {isDeleting ? "Deleting…" : "🗑 Delete"}
@@ -745,6 +761,15 @@ function Dashboard() {
               <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "3px" }}>
                 <div style={{ height: "6px", width: `${pct}%`, background: pct === 100 ? "#059669" : "#2563eb", borderRadius: "3px", transition: "width 0.5s ease" }} />
               </div>
+              <div style={{ marginTop: "14px" }}>
+                <button onClick={() => {
+                  const url = `${window.location.origin}/path/${currentPath.id}`;
+                  navigator.clipboard.writeText(url);
+                  alert("Share link copied! Send it to anyone.");
+                }} style={{ padding: "7px 16px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "7px", color: "#2563eb", fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
+                  🔗 Share this path
+                </button>
+              </div>
             </div>
           </div>
 
@@ -791,8 +816,207 @@ function Dashboard() {
   return null;
 }
 
+// ── Shared Path View ─────────────────────────────────────────────────────────
+function SharedPathView({ pathId }) {
+  const { user } = useUser();
+  const [path, setPath] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+
+  useEffect(() => {
+    async function loadSharedPath() {
+      try {
+        const { data, error } = await supabase
+          .from("paths")
+          .select("*")
+          .eq("id", pathId)
+          .eq("is_shared", true)
+          .single();
+        if (error || !data) { setNotFound(true); return; }
+        setPath({
+          id: data.id,
+          goal: data.goal,
+          totalTime: data.total_time,
+          videos: data.videos || [],
+          createdAt: new Date(data.created_at).toLocaleDateString(),
+        });
+      } catch (e) { setNotFound(true); }
+      finally { setLoading(false); }
+    }
+    loadSharedPath();
+  }, [pathId]);
+
+  async function handleAddToMyPaths() {
+    if (!user?.id) return;
+    setAdding(true);
+    try {
+      const newId = Date.now().toString();
+      const { error } = await supabase.from("paths").insert({
+        id: newId,
+        user_id: user.id,
+        goal: path.goal,
+        total_time: path.totalTime,
+        videos: path.videos,
+        is_shared: true,
+        created_at: new Date().toISOString(),
+      });
+      if (!error) setAdded(true);
+    } catch (e) { alert("Something went wrong. Please try again."); }
+    finally { setAdding(false); }
+  }
+
+  async function handleCopyLink() {
+    await navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#f8f9fa", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif" }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ width: "36px", height: "36px", border: "3px solid #e8e8e4", borderTop: "3px solid #2563eb", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 0.8s linear infinite" }} />
+        <p style={{ color: "#9ca3af", fontSize: "14px" }}>Loading path…</p>
+      </div>
+    </div>
+  );
+
+  if (notFound) return (
+    <div style={{ minHeight: "100vh", background: "#f8f9fa", fontFamily: "Inter, sans-serif" }}>
+      <Nav />
+      <div style={{ maxWidth: "500px", margin: "80px auto", padding: "0 24px", textAlign: "center" }}>
+        <div style={{ fontSize: "48px", marginBottom: "20px" }}>🔍</div>
+        <h2 style={{ fontSize: "24px", fontWeight: "700", color: "#0f172a", marginBottom: "12px" }}>Path not found</h2>
+        <p style={{ color: "#6b7280", marginBottom: "28px" }}>This learning path doesn't exist or is no longer shared.</p>
+        <a href="/" style={{ display: "inline-block", padding: "12px 28px", background: "#2563eb", color: "white", borderRadius: "8px", fontWeight: "700", textDecoration: "none", fontSize: "14px" }}>Go to LevelingPath →</a>
+      </div>
+    </div>
+  );
+
+  const phases = [...new Set(path.videos.map(v => v.phase))];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8f9fa", fontFamily: "Inter, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0;}`}</style>
+      <Nav />
+
+      <div style={{ maxWidth: "660px", margin: "0 auto", padding: "32px 16px 80px" }}>
+
+        {/* Shared path banner */}
+        <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", padding: "12px 16px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ fontSize: "16px" }}>🔗</span>
+          <p style={{ fontSize: "13px", color: "#1d4ed8", fontWeight: "500", flex: 1 }}>Someone shared this learning path with you!</p>
+          <button onClick={handleCopyLink} style={{ padding: "5px 12px", background: copied ? "#059669" : "white", border: "1px solid #bfdbfe", borderRadius: "6px", color: copied ? "white" : "#2563eb", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "Inter, sans-serif", transition: "all 0.2s", whiteSpace: "nowrap" }}>
+            {copied ? "✓ Copied!" : "Copy link"}
+          </button>
+        </div>
+
+        {/* Path header */}
+        <div style={{ background: "white", border: "1px solid #e8e8e4", borderRadius: "14px", padding: "22px", marginBottom: "16px" }}>
+          <p style={{ fontSize: "10px", fontWeight: "700", color: "#2563eb", letterSpacing: "2px", marginBottom: "10px" }}>LEARNING PATH</p>
+          <p style={{ fontWeight: "700", fontSize: "18px", color: "#0f172a", lineHeight: "1.35", marginBottom: "14px" }}>{path.goal}</p>
+          <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", marginBottom: "14px" }}>
+            {[[`${path.videos.length} videos`, "▶", "#059669"], [`~${path.totalTime}`, "⏱", "#2563eb"], ["Real YouTube results", "◈", "#7c3aed"]].map(([txt, icon, col]) => (
+              <div key={txt} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ color: col, fontSize: "12px" }}>{icon}</span>
+                <span style={{ color: "#6b7280", fontSize: "13px" }}>{txt}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ height: "4px", background: "#f1f5f9", borderRadius: "2px" }} />
+        </div>
+
+        {/* Videos */}
+        {phases.map((phaseName, pi) => {
+          const meta = PHASE_META[phaseName] || PHASE_META["Core Skills"];
+          return (
+            <div key={phaseName}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "14px 0 10px" }}>
+                <span style={{ color: meta.color, fontSize: "10px" }}>{meta.icon}</span>
+                <span style={{ fontSize: "10px", fontWeight: "700", letterSpacing: "2px", color: meta.color }}>PHASE {pi + 1} · {phaseName.toUpperCase()}</span>
+                <div style={{ flex: 1, height: "1px", background: "#e8e8e4" }} />
+              </div>
+              {path.videos.filter(v => v.phase === phaseName).map((video, idx) => (
+                <div key={video.id} style={{ background: "white", border: "1px solid #e8e8e4", borderRadius: "10px", padding: "12px 14px", marginBottom: "8px", display: "flex", gap: "12px", alignItems: "center" }}>
+                  <div style={{ minWidth: "26px", height: "26px", borderRadius: "50%", border: "1.5px solid #d1d5db", display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontWeight: "600", fontSize: "11px", flexShrink: 0 }}>{idx + 1}</div>
+                  <div style={{ position: "relative", borderRadius: "6px", overflow: "hidden", flexShrink: 0 }}>
+                    {video.thumbnail
+                      ? <img src={video.thumbnail} alt="" style={{ width: "88px", height: "50px", objectFit: "cover", display: "block" }} />
+                      : <div style={{ width: "88px", height: "50px", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>▶</div>
+                    }
+                    {video.duration && <div style={{ position: "absolute", bottom: "2px", right: "3px", background: "rgba(0,0,0,0.75)", color: "white", fontSize: "9px", padding: "1px 4px", borderRadius: "2px" }}>{video.duration}</div>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontWeight: "600", fontSize: "13px", color: "#0f172a", lineHeight: "1.4", marginBottom: "3px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{video.title}</p>
+                    <p style={{ color: "#6b7280", fontSize: "12px" }}>{video.channel}{video.views ? ` · ${video.views} views` : ""}</p>
+                  </div>
+                  <div style={{ textAlign: "center", flexShrink: 0 }}>
+                    <p style={{ fontSize: "15px", fontWeight: "700", color: meta.color }}>{video.relevanceScore}</p>
+                    <p style={{ fontSize: "9px", color: "#9ca3af" }}>MATCH</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+        {/* CTA */}
+        <div style={{ background: "white", border: "1px solid #e8e8e4", borderRadius: "14px", padding: "28px", textAlign: "center", marginTop: "24px" }}>
+          {added ? (
+            <>
+              <div style={{ fontSize: "36px", marginBottom: "12px" }}>✅</div>
+              <p style={{ fontSize: "17px", fontWeight: "700", color: "#0f172a", marginBottom: "8px" }}>Added to your paths!</p>
+              <p style={{ color: "#6b7280", fontSize: "14px", marginBottom: "20px" }}>Go to your dashboard to start tracking your progress.</p>
+              <a href="/" style={{ display: "inline-block", padding: "11px 28px", background: "#2563eb", color: "white", borderRadius: "10px", fontWeight: "700", fontSize: "14px", textDecoration: "none" }}>Go to my dashboard →</a>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: "17px", fontWeight: "700", color: "#0f172a", marginBottom: "8px" }}>Want to follow this path?</p>
+              <p style={{ color: "#6b7280", fontSize: "14px", marginBottom: "20px" }}>
+                {user ? "Add it to your account and track your progress as you watch each video." : "Create a free account to save this path and track your progress."}
+              </p>
+              {user ? (
+                <button onClick={handleAddToMyPaths} disabled={adding} style={{ padding: "11px 28px", background: "#2563eb", border: "none", borderRadius: "10px", color: "white", fontWeight: "700", fontSize: "14px", cursor: adding ? "not-allowed" : "pointer", fontFamily: "Inter, sans-serif", opacity: adding ? 0.7 : 1 }}>
+                  {adding ? "Adding…" : "➕ Add to my paths"}
+                </button>
+              ) : (
+                <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+                  <SignUpButton mode="modal">
+                    <button style={{ padding: "11px 28px", background: "#2563eb", border: "none", borderRadius: "10px", color: "white", fontWeight: "700", fontSize: "14px", cursor: "pointer", fontFamily: "Inter, sans-serif" }}>Sign up free to save this path</button>
+                  </SignUpButton>
+                  <SignInButton mode="modal">
+                    <button style={{ padding: "11px 20px", background: "white", border: "1.5px solid #e2e8f0", borderRadius: "10px", color: "#374151", fontWeight: "600", fontSize: "14px", cursor: "pointer", fontFamily: "Inter, sans-serif" }}>Sign in</button>
+                  </SignInButton>
+                </div>
+              )}
+              <p style={{ marginTop: "16px", fontSize: "13px", color: "#9ca3af" }}>Free forever · No credit card · 100% YouTube content</p>
+            </>
+          )}
+        </div>
+
+        {/* Build your own CTA */}
+        <div style={{ textAlign: "center", marginTop: "20px", padding: "20px" }}>
+          <p style={{ fontSize: "13px", color: "#9ca3af", marginBottom: "8px" }}>Want to learn something different?</p>
+          <a href="/" style={{ fontSize: "14px", color: "#2563eb", fontWeight: "600", textDecoration: "none" }}>Build your own free learning path →</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Root App ──────────────────────────────────────────────────────────────────
 export default function App() {
+  // Simple client-side routing for shared paths
+  const pathname = window.location.pathname;
+  const sharedMatch = pathname.match(/^\/path\/(.+)$/);
+
+  if (sharedMatch) {
+    return <SharedPathView pathId={sharedMatch[1]} />;
+  }
+
   return (
     <>
       <SignedOut><LandingPage /></SignedOut>
