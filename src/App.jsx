@@ -432,7 +432,7 @@ function Dashboard() {
   const prevWatchedRef = useRef({});
   const cycleRef = useRef(null);
 
-  const STEPS = ["Asking AI to plan your path…","Searching YouTube for Foundation videos…","Searching YouTube for Core Skills videos…","Searching YouTube for Advanced videos…","Fetching video stats…","Scoring for relevance…","Sequencing your path…"];
+  const STEPS = ["Asking AI to plan your path…","Searching YouTube for Foundation videos…","Searching YouTube for Core Skills videos…","Searching YouTube for Advanced videos…","Fetching video details…","Scoring for relevance…","Finalizing your path…"];
 
   useEffect(() => {
     if (!user?.id) return;
@@ -504,7 +504,7 @@ function Dashboard() {
   }
 
   async function planWithClaude(goal) {
-    const res = await fetch("/api/claude", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1200, messages: [{ role: "user", content: `A user wants to learn: "${goal}"\n\nReturn ONLY valid JSON:\n{\n  "refinedGoal": "clear 1-sentence outcome",\n  "totalTime": "estimated watch time",\n  "videos": [\n    { "phase": "Foundation", "youtubeQuery": "specific search query", "reason": "why essential", "relevanceScore": 95 },\n    { "phase": "Foundation", "youtubeQuery": "...", "reason": "...", "relevanceScore": 91 },\n    { "phase": "Core Skills", "youtubeQuery": "...", "reason": "...", "relevanceScore": 94 },\n    { "phase": "Core Skills", "youtubeQuery": "...", "reason": "...", "relevanceScore": 88 },\n    { "phase": "Advanced", "youtubeQuery": "...", "reason": "...", "relevanceScore": 92 },\n    { "phase": "Advanced", "youtubeQuery": "...", "reason": "...", "relevanceScore": 89 }\n  ]\n}` }] }) });
+    const res = await fetch("/api/claude", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1800, messages: [{ role: "user", content: `A user wants to learn: "${goal}"\n\nReturn ONLY valid JSON with exactly 9 videos — 3 per phase:\n{\n  "refinedGoal": "clear 1-sentence outcome",\n  "totalTime": "estimated total watch time",\n  "videos": [\n    { "phase": "Foundation", "youtubeQuery": "specific search query", "reason": "why essential", "relevanceScore": 95 },\n    { "phase": "Foundation", "youtubeQuery": "...", "reason": "...", "relevanceScore": 91 },\n    { "phase": "Foundation", "youtubeQuery": "...", "reason": "...", "relevanceScore": 88 },\n    { "phase": "Core Skills", "youtubeQuery": "...", "reason": "...", "relevanceScore": 94 },\n    { "phase": "Core Skills", "youtubeQuery": "...", "reason": "...", "relevanceScore": 90 },\n    { "phase": "Core Skills", "youtubeQuery": "...", "reason": "...", "relevanceScore": 87 },\n    { "phase": "Advanced", "youtubeQuery": "...", "reason": "...", "relevanceScore": 93 },\n    { "phase": "Advanced", "youtubeQuery": "...", "reason": "...", "relevanceScore": 89 },\n    { "phase": "Advanced", "youtubeQuery": "...", "reason": "...", "relevanceScore": 86 }\n  ]\n}` }] }) });
     const data = await res.json();
     const text = (data.content || []).map(b => b.text || "").join("");
     return JSON.parse(text.replace(/```json|```/g, "").trim());
