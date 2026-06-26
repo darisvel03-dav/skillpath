@@ -457,7 +457,24 @@ function Dashboard() {
     for (const path of savedPaths) {
       const { pct } = getProgress(path);
       const prevPct = (() => { const w = path.videos.filter(v => prevWatchedRef.current[`${path.id}_${v.id}`]).length; return Math.round((w / path.videos.length) * 100); })();
-      if (pct === 100 && prevPct < 100) { setCompletedPath(path); setShowCompletion(true); break; }
+      if (pct === 100 && prevPct < 100) {
+        setCompletedPath(path);
+        setShowCompletion(true);
+        // Send completion email
+        if (user?.primaryEmailAddress?.emailAddress) {
+          fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              to: user.primaryEmailAddress.emailAddress,
+              userName: [user.firstName, user.lastName].filter(Boolean).join(' ') || 'there',
+              pathGoal: path.goal,
+              videoCount: path.videos.length,
+            }),
+          }).catch(err => console.error('Email error:', err));
+        }
+        break;
+      }
     }
     prevWatchedRef.current = { ...watchedMap };
   }, [watchedMap]);
